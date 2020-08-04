@@ -14,6 +14,7 @@ type Root struct {
 	Show   Show   `cmd:"" help:"Shows all assigned and unassigned routes for the channel"`
 	Purge  Purge  `cmd:"" help:"Clears all linked routes for the channel"`
 	Ping   Ping   `cmd:"" help:"Diagnostics command"`
+	About  About  `cmd:"" help:"Shows information about this bot"`
 }
 
 // cleanupPreviousRouteEmbeds deletes messages from the bot that are route embeds that come
