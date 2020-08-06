@@ -19,47 +19,47 @@ func NewService(repo *Repository) *Service {
 	}
 }
 
-// ComposeEmbed creates an embed showing who is linked to what route in the chaennl
-func (s *Service) ComposeEmbed(idx map[string][]string) *discordgo.MessageEmbed {
+// ComposeEmbed creates an embed showing who is linked to what route in the channel
+func (s *Service) ComposeEmbed(m Map, idx map[string][]string) *discordgo.MessageEmbed {
+
+	// Creating fields
+	fields := make([]*discordgo.MessageEmbedField, m.Sections)
+	for i := 0; i < int(m.Sections); i++ {
+		suffix := ""
+		if i != int(m.Sections-1) {
+			suffix = string(0x200B)
+		}
+
+		fields[i] = &discordgo.MessageEmbedField{
+			Name:  fmt.Sprintf("__Section %d__", i+1),
+			Value: s.ComposeSectionText(m, idx, i+1) + "\n" + suffix,
+		}
+	}
+
 	return &discordgo.MessageEmbed{
 		Author: &discordgo.MessageEmbedAuthor{
 			Name:    "Routes",
 			IconURL: "https://cdn0.iconfinder.com/data/icons/small-n-flat/24/678111-map-marker-512.png",
 		},
-		Color: 0x99B2DD,
 		Thumbnail: &discordgo.MessageEmbedThumbnail{
 			URL:    "https://i.imgur.com/KHHO0DY.png",
 			Height: 1000,
 		},
-		Fields: []*discordgo.MessageEmbedField{
-			{
-				Name:  "Section 1",
-				Value: s.ComposeSectionText(idx, 1) + "\n" + string(0x200B),
-			},
-			{
-				Name:  "Section 2",
-				Value: s.ComposeSectionText(idx, 2) + "\n" + string(0x200B),
-			},
-			{
-				Name:  "Section 3",
-				Value: s.ComposeSectionText(idx, 3),
-			},
-		},
+		Color:  0x99B2DD,
+		Fields: fields,
 	}
 }
 
 // ComposeSectionText creates a string for an embed field showing who is linked to a section
-func (s *Service) ComposeSectionText(idx map[string][]string, section int) string {
-	limit := 4 + section
-	alpha := "ABCDEFG"
+func (s *Service) ComposeSectionText(m Map, idx map[string][]string, section int) string {
+	paths := m.Paths(section)
 
 	str := ""
-	for i := 0; i < limit; i++ {
+	for i := 0; i < len(paths); i++ {
 		list := ""
-		char := string(alpha[i])
 
 		// Getting persons assigned to current route
-		key := fmt.Sprintf("%d:%s", section, char)
+		key := fmt.Sprintf("%d:%s", section, paths[i])
 		if ids, ok := idx[key]; ok {
 			mentions := make([]string, len(ids))
 			for i, id := range ids {
@@ -69,7 +69,7 @@ func (s *Service) ComposeSectionText(idx map[string][]string, section int) strin
 			list = strings.Join(mentions, "/")
 		}
 
-		str += strings.Trim(fmt.Sprintf("**%s:** %s", char, list), "")
+		str += strings.Trim(fmt.Sprintf("**%s:** %s", paths[i], list), " ")
 		str += "\n"
 	}
 

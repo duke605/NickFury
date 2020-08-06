@@ -2,13 +2,16 @@ package commands
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"runtime/debug"
 	"strings"
 
+	"github.com/alecthomas/kong"
 	bolt "github.com/boltdb/bolt"
 	"github.com/bwmarrin/discordgo"
 	"github.com/duke605/NickFury/route"
+	"github.com/spf13/viper"
 )
 
 // Link ...
@@ -20,58 +23,72 @@ type Link struct {
 }
 
 // AfterApply ...
-func (l Link) AfterApply(sess *discordgo.Session, msg *discordgo.MessageCreate) error {
+func (l Link) AfterApply(sess *discordgo.Session, msg *discordgo.MessageCreate, rs *route.Service, k *kong.Kong) error {
+	cmdPrefix := viper.GetString("COMMAND_PREFIX")
 	l.Path = strings.ToUpper(l.Path)
 
-	if l.Section < 1 || l.Section > 3 {
+	// Checking if the user is allowed to use the command
+	err := l.checkPermissions(sess, msg)
+	if err != nil {
+		return err
+	}
+
+	// Checking if a map exists for the channel
+	m, err := rs.GetMapForChannel(context.Background(), msg.ChannelID)
+	if err != nil && err != sql.ErrNoRows {
+		return SystemError{
+			error:   err,
+			Message: "Something went wrong getting the map for this channel",
+			Stack:   debug.Stack(),
+		}
+	} else if err == sql.ErrNoRows {
+		return Warning{
+			Message: fmt.Sprintf("There is no map configured for this channel. Use the `%smap` command to configure one", cmdPrefix),
+		}
+	}
+	kong.Bind(m).Apply(k)
+
+	// Checking if the section is in the acceptable range
+	if l.Section < 1 || l.Section > int(m.Sections) {
 		return UsageError{
-			Param:    "path",
-			Message:  "Must be between 1 and 3 (inclusive)",
+			Param:    "section",
+			Message:  fmt.Sprintf("Must be between 1 and %d (inclusive)", m.Sections),
 			Provided: l.Path,
-			Footer:   "Type !link --help for command usage",
+			Footer:   fmt.Sprintf("Type %slink --help for command usage", cmdPrefix),
 		}
 	}
 
+	// Checking that the path param is a valid character
 	if len(l.Path) > 1 {
 		return UsageError{
 			Param:    "path",
 			Message:  "Must be a single character",
 			Provided: l.Path,
-			Footer:   "Type !link --help for command usage",
+			Footer:   fmt.Sprintf("Type %slink --help for command usage", cmdPrefix),
 		}
 	}
 
-	limit := 4 + l.Section
-	min, max := "A"[0], "ABCDEFG"[limit-1 : limit][0]
-	if l.Path[0] < min || l.Path[0] > max {
+	// Checking that the path param is a valid path for the map
+	if !m.IsValidPath(l.Section, l.Path) {
+		paths := m.Paths(l.Section)
 		return UsageError{
 			Param:    "path",
-			Message:  fmt.Sprintf("Must be between %s and %s (inclusive)", string(min), string(max)),
+			Message:  fmt.Sprintf("Must be between A and %s (inclusive)", paths[len(paths)-1]),
 			Provided: l.Path,
-			Footer:   "Type !link --help for command usage",
+			Footer:   fmt.Sprintf("Type %slink --help for command usage", cmdPrefix),
 		}
 	}
 
-	return l.checkPermissions(sess, msg)
+	return nil
 }
 
-func (l Link) checkPermissions(sess *discordgo.Session, msg *discordgo.MessageCreate) error {
+func (l Link) checkPermissions(sess *discordgo.Session, m *discordgo.MessageCreate) error {
 	// If the command was not invoked with the user flag then the command isn't restricted
 	if l.User == "" {
 		return nil
 	}
 
-	// Checking if the user is authorized
-	authUsers := map[string]struct{}{
-		"213531207936245761": {}, // Mysterio
-		"136856172203474944": {}, // Duke605
-	}
-	if _, ok := authUsers[msg.Author.ID]; ok {
-		return nil
-	}
-
-	// Getting role information about user
-	mem, err := getMember(sess, msg.GuildID, msg.Author.ID)
+	auth, err := isUserOrRole(sess, m.GuildID, m.Author.ID, trustedUsers, trustedRoles)
 	if err != nil {
 		return SystemError{
 			error:   err,
@@ -80,15 +97,9 @@ func (l Link) checkPermissions(sess *discordgo.Session, msg *discordgo.MessageCr
 		}
 	}
 
-	// Checking if the user has any authorized roles
-	authRoles := map[string]struct{}{
-		"735605674343661639": {}, // Sith Load Officers
-		"735605674343661644": {}, // officers
-		"735605674343661645": {}, // leaders
-	}
-	if !isAuthorized(mem, authRoles) {
+	if !auth {
 		return PermissionError{
-			Message: "You do not have permission to use the `user` flag for this command",
+			Message: "You do not have permission to use this command",
 		}
 	}
 
@@ -96,7 +107,7 @@ func (l Link) checkPermissions(sess *discordgo.Session, msg *discordgo.MessageCr
 }
 
 // Run ...
-func (l Link) Run(sess *discordgo.Session, msg *discordgo.MessageCreate, rs *route.Service) error {
+func (l Link) Run(sess *discordgo.Session, msg *discordgo.MessageCreate, rs *route.Service, m route.Map) error {
 	var newRoute route.Route
 	var routes []route.Route
 	var err error
@@ -165,9 +176,9 @@ func (l Link) Run(sess *discordgo.Session, msg *discordgo.MessageCreate, rs *rou
 		idx[key] = append(idx[key], r.UserID)
 	}
 
-	m, err := sess.ChannelMessageSendEmbed(msg.ChannelID, rs.ComposeEmbed(idx))
+	newMsg, err := sess.ChannelMessageSendEmbed(msg.ChannelID, rs.ComposeEmbed(m, idx))
 	if err == nil {
-		cleanupPreviousRouteEmbeds(sess, msg.ChannelID, m.ID)
+		cleanupPreviousRouteEmbeds(sess, newMsg.ChannelID, newMsg.ID)
 	}
 
 	return nil

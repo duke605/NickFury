@@ -7,11 +7,23 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+var trustedUsers = map[string]struct{}{
+	"213531207936245761": {}, // Mysterio
+	"136856172203474944": {}, // Duke605
+}
+
+var trustedRoles = map[string]struct{}{
+	"735605674343661639": {}, // Sith Load Officers
+	"735605674343661644": {}, // officers
+	"735605674343661645": {}, // leaders
+}
+
 // Root ...
 type Root struct {
 	Link   Link   `cmd:"" help:"Links yourself to a section and path"`
-	Unlink Unlink `cmd:"" help:"Unlinks yourself from a path and/or section"`
-	Show   Show   `cmd:"" help:"Shows all assigned and unassigned routes for the channel"`
+	Unlink unlink `cmd:"" help:"Unlinks yourself from a path and/or section"`
+	Show   show   `cmd:"" help:"Shows all assigned and unassigned routes for the channel"`
+	Map    _map   `cmd:"" help:"Configures the map for the channel"`
 	Purge  Purge  `cmd:"" help:"Clears all linked routes for the channel"`
 	Ping   Ping   `cmd:"" help:"Diagnostics command"`
 	About  About  `cmd:"" help:"Shows information about this bot"`
@@ -61,9 +73,8 @@ func getMember(sess *discordgo.Session, guildID, userID string) (*discordgo.Memb
 	return mem, nil
 }
 
-// isAutorized determines if the provided member has one of the authorized roles
-// and returns true if they do.
-func isAuthorized(m *discordgo.Member, autorizedRoles map[string]struct{}) bool {
+// hasRole determines if the provided member has a role in the authorizedRoles set provided
+func hasRole(m *discordgo.Member, autorizedRoles map[string]struct{}) bool {
 	for _, r := range m.Roles {
 		if _, ok := autorizedRoles[r]; ok {
 			return true
@@ -71,4 +82,30 @@ func isAuthorized(m *discordgo.Member, autorizedRoles map[string]struct{}) bool 
 	}
 
 	return false
+}
+
+// isUserOrRole detemines if the user is in the authUserIDs set or if the user has a role
+// in the authRoles set.
+func isUserOrRole(sess *discordgo.Session, guildID, userID string, authUserIDs, authRoles map[string]struct{}) (bool, error) {
+	if _, ok := authUserIDs[userID]; ok {
+		return true, nil
+	}
+
+	mem, err := getMember(sess, guildID, userID)
+	if err != nil {
+		return false, err
+	}
+
+	return hasRole(mem, authRoles), nil
+}
+
+// newInfoEmbed creates a new info embed with some field prefilled
+func newInfoEmbed() *discordgo.MessageEmbed {
+	return &discordgo.MessageEmbed{
+		Color: 0x3C9EFF,
+		Author: &discordgo.MessageEmbedAuthor{
+			IconURL: "https://i.imgur.com/EPHiUNu.png",
+			Name:    "Info",
+		},
+	}
 }

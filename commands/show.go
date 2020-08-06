@@ -2,19 +2,39 @@ package commands
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"runtime/debug"
-	"time"
 
+	"github.com/alecthomas/kong"
 	"github.com/bwmarrin/discordgo"
 	"github.com/duke605/NickFury/route"
+	"github.com/spf13/viper"
 )
 
-// Show ...
-type Show struct{}
+type show struct{}
 
-// Run ...
-func (Show) Run(sess *discordgo.Session, msg *discordgo.MessageCreate, rs *route.Service, t time.Time) error {
+func (show) AfterApply(sess *discordgo.Session, msg *discordgo.MessageCreate, rs *route.Service, k *kong.Kong) error {
+	cmdPrefix := viper.GetString("COMMAND_PREFIX")
+
+	// Checking if a map exists for the channel
+	m, err := rs.GetMapForChannel(context.Background(), msg.ChannelID)
+	if err != nil && err != sql.ErrNoRows {
+		return SystemError{
+			error:   err,
+			Message: "Something went wrong getting the map for this channel",
+			Stack:   debug.Stack(),
+		}
+	} else if err == sql.ErrNoRows {
+		return Warning{
+			Message: fmt.Sprintf("There is no map configured for this channel. Use the `%smap` command to configure one", cmdPrefix),
+		}
+	}
+
+	return kong.Bind(m).Apply(k)
+}
+
+func (show) Run(sess *discordgo.Session, msg *discordgo.MessageCreate, rs *route.Service, m route.Map) error {
 	var routes []route.Route
 	var err error
 
@@ -35,9 +55,10 @@ func (Show) Run(sess *discordgo.Session, msg *discordgo.MessageCreate, rs *route
 		idx[key] = append(idx[key], r.UserID)
 	}
 
-	m, err := sess.ChannelMessageSendEmbed(msg.ChannelID, rs.ComposeEmbed(idx))
+	// Sending route list to channel and then cleaning up previous lists
+	newMsg, err := sess.ChannelMessageSendEmbed(msg.ChannelID, rs.ComposeEmbed(m, idx))
 	if err == nil {
-		cleanupPreviousRouteEmbeds(sess, m.ChannelID, m.ID)
+		cleanupPreviousRouteEmbeds(sess, newMsg.ChannelID, newMsg.ID)
 	}
 
 	return nil

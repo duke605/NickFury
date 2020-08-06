@@ -12,19 +12,8 @@ import (
 type Purge struct{}
 
 // AfterApply ...
-func (Purge) AfterApply(sess *discordgo.Session, msg *discordgo.MessageCreate) error {
-
-	// Checking if the user is authorized
-	authUsers := map[string]struct{}{
-		"136856172203474944": {}, // Duke605
-		"213531207936245761": {}, // Mysterio
-	}
-	if _, ok := authUsers[msg.Author.ID]; ok {
-		return nil
-	}
-
-	// Getting role information about user
-	mem, err := getMember(sess, msg.GuildID, msg.Author.ID)
+func (Purge) AfterApply(sess *discordgo.Session, m *discordgo.MessageCreate) error {
+	auth, err := isUserOrRole(sess, m.GuildID, m.Author.ID, trustedUsers, trustedRoles)
 	if err != nil {
 		return SystemError{
 			error:   err,
@@ -33,18 +22,13 @@ func (Purge) AfterApply(sess *discordgo.Session, msg *discordgo.MessageCreate) e
 		}
 	}
 
-	// Checking if the user has any authorized roles
-	authRoles := map[string]struct{}{
-		"735605674343661639": {}, // Sith Load Officers
-		"735605674343661644": {}, // officers
-		"735605674343661645": {}, // leaders
+	if !auth {
+		return PermissionError{
+			Message: "You do not have permission to use this command",
+		}
 	}
-	if isAuthorized(mem, authRoles) {
-		return nil
-	}
-	return PermissionError{
-		Message: "You do not have permission to run use this command",
-	}
+
+	return nil
 }
 
 // Run ...

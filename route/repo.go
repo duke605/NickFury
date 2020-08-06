@@ -2,8 +2,10 @@ package route
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/boltdb/bolt"
 	"github.com/duke605/NickFury/datastore"
@@ -16,6 +18,26 @@ type Route struct {
 	ChannelID string `json:"channel_id"`
 	Section   int    `json:"section"`
 	Path      string `json:"path"`
+}
+
+// Map ...
+type Map struct {
+	ID       string   `json:"id"`
+	Sections byte     `json:"sections"`
+	MaxPaths []string `json:"max_paths"`
+}
+
+// Paths returns the valid paths for the provided section
+func (m Map) Paths(section int) []string {
+	limit := ([]byte(m.MaxPaths[section-1])[0] - 'A') + 1
+	return strings.Split("ABCDEFGHIJKLMNOPQRSTUVWXYZ"[:limit], "")
+}
+
+// IsValidPath returns true if the path is valid for the section
+func (m Map) IsValidPath(section int, p string) bool {
+	paths := m.Paths(section)
+	p = strings.ToUpper(p)
+	return p[0] >= paths[0][0] && p[0] <= paths[len(paths)-1][0]
 }
 
 // GetID returns the ID for the route
@@ -118,5 +140,43 @@ func (repo *Repository) DeleteRoute(ctx context.Context, r Route) error {
 		}
 
 		return b.Delete(r.GetID())
+	})
+}
+
+// GetMapForChannel returns a map from the database that is for the channel. Returns sql.ErrNoRows if no
+// map could be found for the channel
+func (repo *Repository) GetMapForChannel(ctx context.Context, channelID string) (Map, error) {
+	m := Map{}
+	err := repo.InTransaction(ctx, false, func(_ context.Context, tx *bolt.Tx) error {
+		buk := tx.Bucket([]byte("maps"))
+		if buk == nil {
+			return sql.ErrNoRows
+		}
+
+		data := buk.Get([]byte(channelID))
+		if data == nil {
+			return sql.ErrNoRows
+		}
+
+		return json.Unmarshal(data, &m)
+	})
+
+	return m, err
+}
+
+// InsertMap persists a map
+func (repo *Repository) InsertMap(ctx context.Context, m Map) error {
+	return repo.InTransaction(ctx, true, func(_ context.Context, tx *bolt.Tx) error {
+		buk, err := tx.CreateBucketIfNotExists([]byte("maps"))
+		if err != nil {
+			return err
+		}
+
+		data, err := json.Marshal(m)
+		if err != nil {
+			return err
+		}
+
+		return buk.Put([]byte(m.ID), data)
 	})
 }

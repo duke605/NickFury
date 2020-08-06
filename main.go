@@ -21,9 +21,10 @@ import (
 )
 
 var (
-	bot          *dg.Session
+	bot *dg.Session
+	db  *bolt.DB
+
 	routeService *route.Service
-	db           *bolt.DB
 )
 
 func init() {
