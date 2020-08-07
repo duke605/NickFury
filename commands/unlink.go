@@ -110,6 +110,7 @@ func (u *unlink) Run(sess *discordgo.Session, msg *discordgo.MessageCreate, rs *
 	var err error
 	matchingRoutes := map[string]struct{}{}
 
+	u.Path = strings.ToUpper(u.Path)
 	userID := msg.Author.ID
 	if u.User != "" {
 		userID = string(u.User)
@@ -136,9 +137,9 @@ func (u *unlink) Run(sess *discordgo.Session, msg *discordgo.MessageCreate, rs *
 				continue
 			}
 
-			if (u.Section == 0 && u.Path == "") ||
-				(u.Section == r.Section && u.Path == "") ||
-				(u.Section == r.Section && u.Path == r.Path) {
+			sectionsMatch := u.Section == 0 || u.Section == r.Section
+			pathsMatch := u.Path == "" || u.Path == r.Path
+			if sectionsMatch && pathsMatch {
 				rs.DeleteRoute(ctx, r)
 				matchingRoutes[string(r.GetID())] = struct{}{}
 			}
